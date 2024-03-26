@@ -1,0 +1,89 @@
+#Disk Snapshot
+
+# Create a resource group
+resource "azurerm_resource_group" "rg" {
+  name     = "my-resource-group"
+  location = "West Europe"
+}
+
+# Create a virtual network
+resource "azurerm_virtual_network" "vnet" {
+  name                = "my-virtual-network"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Create a subnet
+resource "azurerm_subnet" "subnet" {
+  name                 = "my-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# Create a public IP address
+resource "azurerm_public_ip" "public_ip" {
+  name                = "my-public-ip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"
+}
+
+# Create a network interface
+resource "azurerm_network_interface" "nic" {
+  name                = "my-nic"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.public_ip.id
+  }
+}
+
+# Create a virtual machine
+resource "azurerm_windows_virtual_machine" "vm" {
+  name                = "my-vm"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  size                = "Standard_F2"
+  admin_username      = "adminuser"
+  admin_password      = "P@$$w0rd1234!"
+  network_interface_ids = [
+    azurerm_network_interface.nic.id,
+  ]
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2016-Datacenter"
+    version   = "latest"
+  }
+}
+
+resource "azurerm_managed_disk" "mdisk" {
+  name                 = "managed-disk"
+  location             = azurerm_resource_group.rg.location
+  resource_group_name  = azurerm_resource_group.rg.name
+  storage_account_type = "Standard_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = "10"
+}
+
+# Create a snapshot for the OS disk
+resource "azurerm_snapshot" "os_disk_snapshot" {
+  name                = "os-disk-snapshot-${azurerm_windows_virtual_machine.vm.name}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  create_option       = "Copy"
+  source_uri          = azurerm_windows_virtual_machine.vm.storage_profile_os_disk.0.managed_disk_id
+  #azurerm_windows_virtual_machine.vm.managed_disk_ids[0]
+}
